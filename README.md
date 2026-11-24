@@ -11,12 +11,15 @@
 .
 ├── frontend/                 Vue 3 + Vite + TypeScript 前端
 │   ├── src/views/WorkbenchView.vue|tsx  全部模块共享工作台
+│   ├── src/views/BackfillView.vue       补交批次（可重发批次结果集）
 │   ├── src/data/modules.ts              18个业务模块配置
-│   ├── src/api/              统一请求封装
+│   ├── src/api/             统一请求封装（含 backfill.ts）
 │   └── vite.config.ts        dev server 配置（open: false）
 ├── backend/                  FastAPI（Python） 后端
 │   ├── app/routers/resource.py  通用查询/导出/登记/动作接口
+│   ├── app/routers/backfill.py  补交批次查询/交付/回执/交付文件接口
 │   ├── app/services/<key>.py    每个模块独立领域逻辑
+│   ├── app/services/backfill.py  可重发批次结果集领域逻辑
 │   ├── app/services/base.py     共享服务骨架
 │   └── app/store.py          内存数据仓库与示例数据
 ├── .gitignore
@@ -68,6 +71,36 @@ npm run dev
 | 来源认证 | `source_auth` | 认证凭证 | 凭证标识、来源站点、认证方式 |
 | HTML清洗 | `html_cleaner` | 清洗模板 | 模板标识、适用站点、标签过滤 |
 | 增量同步 | `incremental_sync` | 同步水位 | 水位标识、来源配置、增量字段 |
+
+## 补交批次（可重发批次结果集）
+
+结果存储在批次行上附加 `交付状态 / 补交单号 / 交付时间` 三个字段，
+未交付的批次默认按 `待补` 处理。补交页面 `/#/backfill`（导航「补交批次」）提供完整链路：
+
+1. 按 **采集来源 + 采集日起止 + 批次标签** 检索可重发批次结果集；
+   来源按精确值匹配，不同来源即使批次标签相同也不会互相串批。
+2. 勾选实际要送出的批次提交（也可按当前条件全量交付）；服务端再按来源与
+   采集日复核一次，只把真正送出的批次写入回执，已交付批次会从待补范围移出。
+3. 每个实际送达批次生成一条回执（回执号、单号、来源、采集日、送达时间），
+   提交响应、回执表与 `导出通道` 任务都只反映本次实际送出的集合。
+4. 交付文件由回执生成：`GET /api/backfill/deliveries/{id}/export.csv`，
+   文件行与回执逐批对应，可直接按所选批次复核。
+5. 中途失败（`fail_batch_ids`）时提交返回「部分送达」，重新查询时
+   `待补 / 已交付` 分开统计，未送出的批次仍在下一轮补交清单里。
+6. 迟到批次通过 `POST /api/backfill/record` 写入后，按原查询条件重查即可
+   看到它与先前选中的批次分列在待补与已交付两侧。
+
+主要接口：
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/api/backfill/sources` | 可选采集来源 |
+| GET | `/api/backfill/candidates` | 可重发批次结果集（source/date_from/date_to/batch/delivery_state） |
+| POST | `/api/backfill/deliver` | 提交补交（batch_ids / batch_labels / deliver_all_matching） |
+| GET | `/api/backfill/deliveries` | 补交单列表 |
+| GET | `/api/backfill/deliveries/{id}/export.csv` | 按回执生成交付文件 |
+| GET | `/api/backfill/receipts` | 回执回查（来源 + 采集日） |
+| POST | `/api/backfill/record` | 登记迟到的采集结果批次 |
 
 ## 约定
 

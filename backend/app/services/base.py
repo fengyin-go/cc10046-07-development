@@ -14,6 +14,9 @@ class BaseModuleService:
     STATUS_ORDER: list[str] = []
     ACTION_RULES: dict[str, str] = {}
     NEGATIVE_ACTIONS: list[str] = []
+    # 需要在列表/导出中支持日期区间与交付状态筛选的模块自行声明字段。
+    RANGE_FIELDS: dict[str, str] = {}
+    DELIVERY_STATE_FIELD = ""
 
     def list_entries(
         self,
@@ -21,6 +24,9 @@ class BaseModuleService:
         filters: dict[str, str] | None = None,
         keyword: str | None = None,
         status: str | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
+        delivery_state: str | None = None,
         page: int = 1,
         size: int = 20,
     ) -> tuple[list[dict[str, Any]], int]:
@@ -36,9 +42,42 @@ class BaseModuleService:
             rows = [row for row in rows if keyword.casefold() in str(row.get(field, "")).casefold()]
         if status:
             rows = [row for row in rows if row.get("status") == status]
+        date_field = self.RANGE_FIELDS.get("date")
+        if date_field:
+            lower = (date_from or "").strip()[:10]
+            upper = (date_to or "").strip()[:10]
+            if lower:
+                rows = [
+                    row for row in rows
+                    if str(row.get(date_field, ""))[:10] >= lower
+                ]
+            if upper:
+                rows = [
+                    row for row in rows
+                    if str(row.get(date_field, ""))[:10] <= upper
+                ]
+        if self.DELIVERY_STATE_FIELD and delivery_state:
+            rows = self._filter_delivery_state(rows, delivery_state)
         total = len(rows)
         start = (page - 1) * size
         return rows[start:start + size], total
+
+    def _filter_delivery_state(
+        self, rows: list[dict[str, Any]], expected: str,
+    ) -> list[dict[str, Any]]:
+        pending_terms = {"pending", "待补", "未交付"}
+        delivered_terms = {"delivered", "已交付"}
+        if expected in pending_terms:
+            return [
+                row for row in rows
+                if str(row.get(self.DELIVERY_STATE_FIELD) or "待补") not in delivered_terms
+            ]
+        if expected in delivered_terms:
+            return [
+                row for row in rows
+                if str(row.get(self.DELIVERY_STATE_FIELD) or "待补") in delivered_terms
+            ]
+        return rows
 
     def get_entry(self, entry_id: int) -> dict[str, Any] | None:
         return store.find(self.MODULE, entry_id)

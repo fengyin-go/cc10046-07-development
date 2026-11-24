@@ -14,12 +14,24 @@ class Store:
         self._tables: dict[str, list[dict[str, Any]]] = {
             name: [dict(row) for row in rows] for name, rows in SEED_ROWS.items()
         }
+        # 补交单、回执等内部表：随进程存活，但不计入业务模块统计。
+        self._internal: dict[str, list[dict[str, Any]]] = {}
 
     def module_names(self) -> list[str]:
         return sorted(self._tables)
 
     def rows(self, module: str) -> list[dict[str, Any]]:
         return self._tables.setdefault(module, [])
+
+    def internal_rows(self, name: str) -> list[dict[str, Any]]:
+        return self._internal.setdefault(name, [])
+
+    def reset(self) -> None:
+        """恢复示例数据，供测试和本地重建使用。"""
+        self._tables = {
+            name: [dict(row) for row in rows] for name, rows in SEED_ROWS.items()
+        }
+        self._internal = {}
 
     def find(self, module: str, entry_id: int) -> dict[str, Any] | None:
         for row in self.rows(module):

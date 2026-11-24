@@ -27,6 +27,9 @@ def list_entries(
     request: Request,
     keyword: str | None = Query(default=None),
     status: str | None = Query(default=None),
+    date_from: str | None = Query(default=None),
+    date_to: str | None = Query(default=None),
+    delivery_state: str | None = Query(default=None),
     page: int = Query(default=1, ge=1),
     size: int = Query(default=20, ge=1, le=200),
 ) -> PageResult[dict]:
@@ -37,7 +40,9 @@ def list_entries(
         if key in service.LIST_FIELDS and value.strip()
     }
     items, total = service.list_entries(
-        filters=filters, keyword=keyword, status=status, page=page, size=size)
+        filters=filters, keyword=keyword, status=status,
+        date_from=date_from, date_to=date_to, delivery_state=delivery_state,
+        page=page, size=size)
     return PageResult(items=items, total=total, page=page, size=size)
 
 
@@ -47,6 +52,9 @@ def export_entries(
     request: Request,
     keyword: str | None = Query(default=None),
     status: str | None = Query(default=None),
+    date_from: str | None = Query(default=None),
+    date_to: str | None = Query(default=None),
+    delivery_state: str | None = Query(default=None),
 ) -> StreamingResponse:
     service = require_service(module)
     filters = {
@@ -55,14 +63,21 @@ def export_entries(
         if key in service.LIST_FIELDS and value.strip()
     }
     items, _ = service.list_entries(
-        filters=filters, keyword=keyword, status=status, page=1, size=1_000_000)
+        filters=filters, keyword=keyword, status=status,
+        date_from=date_from, date_to=date_to, delivery_state=delivery_state,
+        page=1, size=1_000_000)
     output = io.StringIO()
     output.write("\ufeff")
     writer = csv.writer(output, lineterminator="\n")
-    writer.writerow(["id", *service.LIST_FIELDS, "status"])
+    header = ["id", *service.LIST_FIELDS, "status"]
+    if service.DELIVERY_STATE_FIELD and service.DELIVERY_STATE_FIELD not in header:
+        header.append(service.DELIVERY_STATE_FIELD)
+    writer.writerow(header)
     for item in items:
         values = [item.get("id"), *(item.get(field, "") for field in service.LIST_FIELDS),
                   item.get("status", "")]
+        if service.DELIVERY_STATE_FIELD:
+            values.append(item.get(service.DELIVERY_STATE_FIELD) or "\u5f85\u8865")
         writer.writerow([
             "'" + str(value) if str(value or "").startswith(("=", "+", "-", "@")) else value
             for value in values

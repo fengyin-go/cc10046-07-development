@@ -6,6 +6,14 @@
         <p class="page-desc">{{ meta.desc }}</p>
       </div>
       <div class="page-actions">
+        <RouterLink
+          v-if="meta.key === 'result_store'"
+          class="btn"
+          data-testid="open-backfill"
+          to="/backfill"
+        >
+          补交批次
+        </RouterLink>
         <button class="btn primary" data-testid="open-create" type="button" @click="openCreate">
           登记{{ meta.entity }}
         </button>
@@ -33,6 +41,24 @@
         <span>{{ field }}</span>
         <input v-model="filters[field]" :data-testid="`filter-${field}`" :placeholder="`按${field}检索`" />
       </label>
+      <template v-if="meta.key === 'result_store'">
+        <label class="filter-item">
+          <span>采集起日</span>
+          <input v-model="rangeFrom" type="date" data-testid="filter-date-from" />
+        </label>
+        <label class="filter-item">
+          <span>采集止日</span>
+          <input v-model="rangeTo" type="date" data-testid="filter-date-to" />
+        </label>
+        <label class="filter-item">
+          <span>交付状态</span>
+          <select v-model="deliveryState" data-testid="filter-delivery-state">
+            <option value="">全部</option>
+            <option value="pending">待补</option>
+            <option value="delivered">已交付</option>
+          </select>
+        </label>
+      </template>
       <button class="btn" data-testid="query" type="submit">查询</button>
       <button class="btn ghost" data-testid="reset" type="button" @click="resetFilters">重置条件</button>
     </form>
@@ -42,13 +68,21 @@
         <tr>
           <th v-for="column in meta.fields" :key="column">{{ column }}</th>
           <th>当前状态</th>
+          <th v-if="meta.key === 'result_store'">交付状态</th>
           <th>可执行动作</th>
         </tr>
       </thead>
       <tbody>
-        <tr v-for="row in rows" :key="String(row.id)" :data-testid="`row-${row.id}`" :data-status="String(row.status)">
+        <tr
+          v-for="row in rows"
+          :key="String(row.id)"
+          :data-testid="`row-${row.id}`"
+          :data-status="String(row.status)"
+          :data-delivery="row.交付状态 ? String(row.交付状态) : undefined"
+        >
           <td v-for="column in meta.fields" :key="column">{{ row[column] ?? '—' }}</td>
           <td>{{ row.status }}</td>
+          <td v-if="meta.key === 'result_store'">{{ row.交付状态 || '待补' }}</td>
           <td class="row-actions">
             <button
               v-for="action in meta.actions"
@@ -63,7 +97,7 @@
           </td>
         </tr>
         <tr v-if="!rows.length">
-          <td :colspan="meta.fields.length + 2" class="empty-state">
+          <td :colspan="meta.fields.length + (meta.key === 'result_store' ? 3 : 2)" class="empty-state">
             暂无{{ meta.name }}数据，可先登记{{ meta.entity }}
           </td>
         </tr>
@@ -111,6 +145,9 @@ const rows = ref<EntryRow[]>([])
 const total = ref(0)
 const errorMessage = ref('')
 const filters = ref<Record<string, string>>({})
+const rangeFrom = ref('')
+const rangeTo = ref('')
+const deliveryState = ref('')
 const filterFields = meta.fields.slice(0, 3)
 const showCreate = ref(false)
 const creating = ref(false)
@@ -130,15 +167,28 @@ const statusSummary = computed(() =>
   })),
 )
 
+function activeFilters(): Record<string, string> {
+  const params: Record<string, string> = { ...filters.value }
+  if (meta.key === 'result_store') {
+    if (rangeFrom.value) params.date_from = rangeFrom.value
+    if (rangeTo.value) params.date_to = rangeTo.value
+    if (deliveryState.value) params.delivery_state = deliveryState.value
+  }
+  return params
+}
+
 function resetFilters() {
   filters.value = {}
+  rangeFrom.value = ''
+  rangeTo.value = ''
+  deliveryState.value = ''
   void reload()
 }
 
 async function exportRows() {
   errorMessage.value = ''
   try {
-    await downloadEntries(meta.key, filters.value)
+    await downloadEntries(meta.key, activeFilters())
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '导出失败'
   }
@@ -179,7 +229,7 @@ async function runAction(action: string, row: EntryRow) {
 async function reload() {
   errorMessage.value = ''
   try {
-    const payload = await listEntries(meta.key, filters.value)
+    const payload = await listEntries(meta.key, activeFilters())
     rows.value = payload.items
     total.value = payload.total
   } catch (error) {
